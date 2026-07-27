@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Fiambrería - Fila Virtual</title>
     <style>
         :root {
@@ -18,7 +18,7 @@
             box-sizing: border-box;
             margin: 0;
             padding: 0;
-            font-family: 'Segoe UI', system-ui, sans-serif;
+            font-family: '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
         }
 
         body {
@@ -28,12 +28,15 @@
             flex-direction: column;
             align-items: center;
             justify-content: center;
+            /* Corrección para Safari iOS */
             min-height: 100vh;
+            min-height: 100dvh; 
             padding: 20px;
             text-align: center;
+            /* Previene el rebote al hacer scroll en iOS */
+            overscroll-behavior-y: none; 
         }
 
-        /* Contenedor principal estilo móvil */
         .app-container {
             background: white;
             width: 100%;
@@ -44,7 +47,6 @@
             overflow: hidden;
         }
 
-        /* Control de pantallas */
         .screen {
             display: none;
             animation: fadeIn 0.3s ease-in-out;
@@ -58,7 +60,6 @@
             to { opacity: 1; transform: translateY(0); }
         }
 
-        /* Tipografía y Botones */
         h1 { font-size: 1.8rem; margin-bottom: 10px; }
         .subtitle { color: #64748b; margin-bottom: 30px; font-size: 1.1rem; }
         
@@ -80,12 +81,13 @@
             width: 100%;
             cursor: pointer;
             transition: transform 0.1s, background-color 0.2s;
+            /* Evita el doble tap para zoom en iOS */
+            touch-action: manipulation; 
         }
         
         .btn:active { transform: scale(0.98); }
         .btn-danger { background-color: transparent; color: var(--danger); margin-top: 15px; padding: 10px; }
 
-        /* Elementos de la sala de espera */
         .status-box {
             background: #f1f5f9;
             border-radius: 12px;
@@ -95,7 +97,6 @@
         .status-box p { margin: 5px 0; font-size: 1.1rem; }
         .highlight { font-weight: bold; color: var(--primary); }
 
-        /* Pantalla de alerta */
         #alert-screen {
             background-color: var(--warning);
             color: #000;
@@ -111,7 +112,7 @@
         
         <div id="welcome-screen" class="screen active">
             <h1>Fiambrería</h1>
-            <p class="subtitle">Supermercado</p>
+            <p class="subtitle">Fila Virtual</p>
             <div style="margin: 40px 0;">
                 <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #2563eb;">
                     <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
@@ -126,7 +127,7 @@
             <div class="big-number" id="my-number">--</div>
             
             <div class="status-box">
-                <p>Atendiendo ahora: <span class="highlight" id="current-number">--</span></p>
+                <p>Atendiendo: <span class="highlight" id="current-number">--</span></p>
                 <p>Personas adelante: <span class="highlight" id="people-ahead">--</span></p>
             </div>
             
@@ -138,50 +139,80 @@
         <div id="alert-screen" class="screen">
             <h1>¡Prepárate!</h1>
             <p style="font-size: 1.2rem; margin-bottom: 30px;">Tu turno está a punto de ser llamado.</p>
-            <p style="font-size: 1.1rem; margin-bottom: 30px;">Por favor, acércate al mesón de la fiambrería.</p>
+            <p style="font-size: 1.1rem; margin-bottom: 30px;">Por favor, acércate a la sección.</p>
             <button class="btn" style="background-color: #000; color: #fff;" onclick="resetApp()">Entendido</button>
         </div>
 
     </div>
 
     <script>
-        // Variables de estado
         let wakeLock = null;
         let simulationInterval = null;
+        let audioContext = null;
         let myNumberInt = 0;
         let currentNumberInt = 0;
 
-        // Cambiar entre pantallas
         function showScreen(screenId) {
             document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
             document.getElementById(screenId).classList.add('active');
         }
 
-        // Función para solicitar Wake Lock (Mantiene la pantalla encendida)
+        // Inicializar el contexto de audio (iOS requiere que esto pase en un evento de clic)
+        function initAudio() {
+            if (!audioContext) {
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                if (AudioContext) {
+                    audioContext = new AudioContext();
+                }
+            }
+            // En iOS, reproducir un sonido vacío desbloquea el audio para después
+            if (audioContext && audioContext.state === 'suspended') {
+                audioContext.resume();
+            }
+        }
+
+        // Función para el sonido de alerta (Alternativa a la vibración en iOS)
+        function playBeep() {
+            if (audioContext) {
+                const oscillator = audioContext.createOscillator();
+                const gainNode = audioContext.createGain();
+                
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(880, audioContext.currentTime); // Tono agradable
+                
+                gainNode.gain.setValueAtTime(0.1, audioContext.currentTime); // Volumen suave
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+                
+                oscillator.start();
+                oscillator.stop(audioContext.currentTime + 0.3); // Dura 0.3 segundos
+            }
+        }
+
+        // Solicitar Wake Lock con fallback seguro
         async function requestWakeLock() {
             try {
                 if ('wakeLock' in navigator) {
                     wakeLock = await navigator.wakeLock.request('screen');
-                    console.log('Pantalla mantenida encendida activa');
+                    console.log('Wake Lock activado con éxito');
                 }
             } catch (err) {
-                console.error(`Error de Wake Lock: ${err.name}, ${err.message}`);
+                console.warn('iOS/Navegador bloqueó el Wake Lock (Modo ahorro de energía o sin HTTPS):', err.message);
+                // La app sigue funcionando aunque no se pueda mantener la pantalla encendida
             }
         }
 
         function releaseWakeLock() {
             if (wakeLock !== null) {
-                wakeLock.release();
+                wakeLock.release().catch(() => {});
                 wakeLock = null;
             }
         }
 
-        // 1. Acción: Obtener Número
         function requestNumber() {
-            // Aquí iría el fetch() tipo POST hacia tu backend
-            // Ejemplo: fetch('/api/queue/join', { method: 'POST' })
+            initAudio(); // Desbloqueamos el audio en iOS
             
-            // Simulamos la respuesta del servidor
             myNumberInt = 14; 
             currentNumberInt = 9;
             let peopleAhead = myNumberInt - currentNumberInt;
@@ -189,46 +220,47 @@
             document.getElementById('my-number').innerText = `C-${myNumberInt}`;
             document.getElementById('current-number').innerText = `C-0${currentNumberInt}`;
             document.getElementById('people-ahead').innerText = peopleAhead;
-            document.getElementById('est-time').innerText = peopleAhead * 2; // Asumimos 2 min por persona
+            document.getElementById('est-time').innerText = peopleAhead * 2;
 
             showScreen('waiting-screen');
             requestWakeLock();
-            
-            // Iniciamos una simulación para que veas cómo avanza la cola
             startSimulation();
         }
 
-        // Simulación de avance de la cola (Reemplaza los WebSockets/Polling)
         function startSimulation() {
             simulationInterval = setInterval(() => {
                 currentNumberInt++;
                 let peopleAhead = myNumberInt - currentNumberInt;
                 
-                // Actualizar UI
-                document.getElementById('current-number').innerText = currentNumberInt < 10 ? `C-0${currentNumberInt}` : `C-${currentNumberInt}`;
+                let displayCurrent = currentNumberInt < 10 ? `C-0${currentNumberInt}` : `C-${currentNumberInt}`;
+                document.getElementById('current-number').innerText = displayCurrent;
                 document.getElementById('people-ahead').innerText = peopleAhead;
                 document.getElementById('est-time').innerText = peopleAhead * 2;
 
-                // Lógica de alerta (Cuando quedan 2 personas o menos)
                 if (peopleAhead <= 2 && peopleAhead > 0) {
                     clearInterval(simulationInterval);
                     triggerAlert();
                 }
-            }, 4000); // Avanza un número cada 4 segundos para la demo
+            }, 4000); 
         }
 
-        // 2. Acción: Disparar Alerta
         function triggerAlert() {
             showScreen('alert-screen');
-            // Intentar vibrar si el móvil lo permite
+            
+            // Intenta vibrar (Funciona en Android)
             if ('vibrate' in navigator) {
-                navigator.vibrate([500, 200, 500, 200, 500]);
+                try { navigator.vibrate([500, 200, 500]); } catch(e){}
             }
+            
+            // Emite un sonido (Funciona en iOS y Android)
+            playBeep();
+            
+            // Repetir el sonido 2 veces más para llamar la atención
+            setTimeout(playBeep, 500);
+            setTimeout(playBeep, 1000);
         }
 
-        // 3. Acción: Cancelar o Reiniciar
         function cancelNumber() {
-            // Aquí iría el fetch() tipo DELETE hacia tu backend
             resetApp();
         }
 
